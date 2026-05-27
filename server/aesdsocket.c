@@ -92,26 +92,28 @@ int main(int argc, char *argv[]) {
 
         // Receive data and append to file
         char buf[BUFSIZE];
-        FILE *f = fopen(DATAFILE, "a");
-        if (!f) {
+        int fd = open(DATAFILE, O_WRONLY | O_CREAT | O_APPEND, 0644);
+        if (fd == -1) {
             close(client_fd);
             continue;
         }
 
         ssize_t bytes;
-        while ((bytes = recv(client_fd, buf, BUFSIZE, 0)) > 0) {
-            fwrite(buf, 1, bytes, f);
-            // Check if packet complete (newline found)
-            if (memchr(buf, '\n', bytes)) break;
+        int found_newline = 0;
+        while (!found_newline && (bytes = recv(client_fd, buf, BUFSIZE, 0)) > 0) {
+            if (write(fd, buf, bytes) == -1) break;
+            if (memchr(buf, '\n', bytes)) found_newline = 1;
         }
-        fclose(f);
+        // Ensure data is flushed to disk before reading back
+        fsync(fd);
+        close(fd);
 
         // Send file content back to client
-        f = fopen(DATAFILE, "r");
-        if (f) {
-            while ((bytes = fread(buf, 1, BUFSIZE, f)) > 0)
+        fd = open(DATAFILE, O_RDONLY);
+        if (fd != -1) {
+            while ((bytes = read(fd, buf, BUFSIZE)) > 0)
                 send(client_fd, buf, bytes, 0);
-            fclose(f);
+            close(fd);
         }
 
         syslog(LOG_INFO, "Closed connection from %s", client_ip);
